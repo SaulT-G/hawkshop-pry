@@ -30,8 +30,27 @@ const cartEmpty = document.getElementById('cart-empty');
 const clearCartBtn = document.getElementById('clear-cart-btn');
 const loadingOverlay = document.getElementById('loading-overlay');
 
-// API Base URL
-const API_URL = 'http://localhost:3000/api';
+// API Base URL - Se detecta automáticamente el entorno
+// En desarrollo: http://localhost:3000/api
+// En producción: usar la URL de tu backend desplegado
+const API_URL = (() => {
+    // Si estamos en localhost, usar localhost
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        return 'http://localhost:3000/api';
+    }
+    // Si estamos en GitHub Pages o producción, usar la URL del backend
+    // ⚠️ IMPORTANTE: CAMBIA ESTA URL por la URL de tu backend desplegado (Railway, Render, etc.)
+    // Ejemplo: 'https://skateboard-shop-production.up.railway.app/api'
+    return 'https://tu-backend.railway.app/api'; // ⚠️ CAMBIAR ESTA URL
+})();
+
+// Función helper para obtener la URL base (sin /api)
+function getBaseUrl() {
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        return 'http://localhost:3000';
+    }
+    return API_URL.replace('/api', '');
+}
 
 // Utilidad de debounce para optimización
 function debounce(func, wait) {
@@ -440,7 +459,7 @@ function createProductCard(product) {
     card.className = 'product-card';
     
     const imageUrl = product.imagen 
-        ? `http://localhost:3000/uploads/${product.imagen}` 
+        ? `${getBaseUrl()}/uploads/${product.imagen}` 
         : null;
 
     const isComprador = currentUser && currentUser.role === 'comprador';
@@ -454,7 +473,10 @@ function createProductCard(product) {
         <div class="product-info">
             <h3 class="product-title">${product.titulo}</h3>
             <p class="product-detail">${product.detalle}</p>
-            <span class="product-quantity">Stock: ${product.cantidad}</span>
+            <div class="product-price-quantity">
+                <span class="product-price">$${parseFloat(product.precio || 0).toFixed(2)}</span>
+                <span class="product-quantity">Stock: ${product.cantidad}</span>
+            </div>
             ${isComprador && product.cantidad > 0 
                 ? `<button class="btn-add-cart" onclick="event.stopPropagation(); addToCart(${product.id})">Agregar al Carrito</button>`
                 : ''}
@@ -490,7 +512,7 @@ function createAdminProductCard(product) {
     card.className = 'product-card';
     
     const imageUrl = product.imagen 
-        ? `http://localhost:3000/uploads/${product.imagen}` 
+        ? `${getBaseUrl()}/uploads/${product.imagen}` 
         : null;
 
     card.innerHTML = `
@@ -502,7 +524,10 @@ function createAdminProductCard(product) {
         <div class="product-info">
             <h3 class="product-title">${product.titulo}</h3>
             <p class="product-detail">${product.detalle}</p>
-            <span class="product-quantity">Stock: ${product.cantidad}</span>
+            <div class="product-price-quantity">
+                <span class="product-price">$${parseFloat(product.precio || 0).toFixed(2)}</span>
+                <span class="product-quantity">Stock: ${product.cantidad}</span>
+            </div>
             <div class="admin-actions">
                 <button class="btn-edit" onclick="editProduct(${product.id})">Editar</button>
                 <button class="btn-delete" onclick="deleteProduct(${product.id})">Eliminar</button>
@@ -532,6 +557,7 @@ window.editProduct = async function(productId) {
                 document.getElementById('product-titulo').value = product.titulo;
                 document.getElementById('product-detalle').value = product.detalle;
                 document.getElementById('product-cantidad').value = product.cantidad;
+                document.getElementById('product-precio').value = product.precio || 0;
                 document.getElementById('form-title').textContent = 'Editar Producto';
                 
                 // Limpiar preview de imagen al editar
@@ -588,6 +614,7 @@ async function handleProductSubmit(e) {
     formData.append('titulo', document.getElementById('product-titulo').value);
     formData.append('detalle', document.getElementById('product-detalle').value);
     formData.append('cantidad', document.getElementById('product-cantidad').value);
+    formData.append('precio', document.getElementById('product-precio').value);
     
     const imagenInput = document.getElementById('product-imagen');
     if (imagenInput.files[0]) {
@@ -639,7 +666,7 @@ async function handleProductSubmit(e) {
 function showProductModal(product) {
     const modalBody = document.getElementById('modal-body');
     const imageUrl = product.imagen 
-        ? `http://localhost:3000/uploads/${product.imagen}` 
+        ? `${getBaseUrl()}/uploads/${product.imagen}` 
         : null;
 
     const isComprador = currentUser && currentUser.role === 'comprador';
@@ -650,7 +677,10 @@ function showProductModal(product) {
             : ''}
         <h2 class="modal-product-title">${product.titulo}</h2>
         <p class="modal-product-detail">${product.detalle}</p>
-        <span class="modal-product-quantity">Stock disponible: ${product.cantidad}</span>
+        <div class="modal-product-info">
+            <span class="modal-product-price">$${parseFloat(product.precio || 0).toFixed(2)}</span>
+            <span class="modal-product-quantity">Stock disponible: ${product.cantidad}</span>
+        </div>
         ${isComprador && product.cantidad > 0 
             ? `<button class="btn-primary" style="margin-top: 1rem; width: auto;" onclick="addToCart(${product.id}); productModal.style.display='none';">Agregar al Carrito</button>`
             : ''}
@@ -726,8 +756,11 @@ function createCartItemElement(item) {
     div.className = 'cart-item';
     
     const imageUrl = item.imagen 
-        ? `http://localhost:3000/uploads/${item.imagen}` 
+        ? `${getBaseUrl()}/uploads/${item.imagen}` 
         : null;
+
+    const precioUnitario = parseFloat(item.precio || 0);
+    const precioTotal = precioUnitario * item.quantity;
 
     div.innerHTML = `
         <div class="cart-item-image">
@@ -738,7 +771,10 @@ function createCartItemElement(item) {
         <div class="cart-item-info">
             <h3 class="cart-item-title">${item.titulo}</h3>
             <p class="cart-item-detail">${item.detalle}</p>
-            <span class="cart-item-stock">Stock disponible: ${item.stock}</span>
+            <div class="cart-item-price-info">
+                <span class="cart-item-price-unit">Precio unitario: $${precioUnitario.toFixed(2)}</span>
+                <span class="cart-item-stock">Stock disponible: ${item.stock}</span>
+            </div>
         </div>
         <div class="cart-item-actions">
             <div class="cart-item-quantity">
@@ -746,6 +782,10 @@ function createCartItemElement(item) {
                 <input type="number" class="quantity-input" value="${item.quantity}" min="1" max="${item.stock}" 
                        onchange="updateCartQuantity(${item.id}, parseInt(this.value))">
                 <button class="quantity-btn" onclick="updateCartQuantity(${item.id}, ${item.quantity + 1})">+</button>
+            </div>
+            <div class="cart-item-total">
+                <span class="cart-item-total-label">Total:</span>
+                <span class="cart-item-total-price">$${precioTotal.toFixed(2)}</span>
             </div>
             <button class="cart-item-remove" onclick="removeFromCart(${item.id})">Eliminar</button>
         </div>

@@ -129,6 +129,42 @@ function initDatabase() {
     db.run(`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)`);
 
+    // Agregar columna precio si no existe (ALTER TABLE)
+    // SQLite no soporta IF NOT EXISTS en ALTER TABLE, así que verificamos primero
+    db.all("PRAGMA table_info(products)", (err, columns) => {
+      if (err) {
+        console.error('Error al verificar columnas:', err.message);
+        return;
+      }
+      
+      const hasPrecioColumn = columns.some(col => col.name === 'precio');
+      
+      if (!hasPrecioColumn) {
+        db.run(`ALTER TABLE products ADD COLUMN precio REAL DEFAULT 0.0`, (alterErr) => {
+          if (alterErr) {
+            console.error('Error al agregar columna precio:', alterErr.message);
+          } else {
+            console.log('Columna precio agregada exitosamente');
+            // Asignar precio por defecto a productos existentes
+            db.run(`UPDATE products SET precio = 0.0 WHERE precio IS NULL`, (updateErr) => {
+              if (updateErr) {
+                console.error('Error al actualizar precios existentes:', updateErr.message);
+              } else {
+                console.log('Precios por defecto asignados a productos existentes');
+              }
+            });
+          }
+        });
+      } else {
+        // La columna ya existe, asegurémonos de que los productos sin precio tengan 0.0
+        db.run(`UPDATE products SET precio = 0.0 WHERE precio IS NULL`, (updateErr) => {
+          if (updateErr) {
+            console.error('Error al actualizar precios existentes:', updateErr.message);
+          }
+        });
+      }
+    });
+
     // Crear usuario admin por defecto
     const adminPassword = bcrypt.hashSync('admin123', 10);
     db.run(`INSERT OR IGNORE INTO users (username, email, password, role) 
@@ -295,16 +331,18 @@ app.get('/api/products', authenticateToken, (req, res) => {
 
 // Crear producto (solo admin)
 app.post('/api/products', authenticateToken, isAdmin, upload.single('imagen'), (req, res) => {
-  const { titulo, detalle, cantidad } = req.body;
+  const { titulo, detalle, cantidad, precio } = req.body;
   const imagen = req.file ? req.file.filename : null;
 
-  if (!titulo || !detalle || !cantidad) {
-    return res.status(400).json({ error: 'Título, detalle y cantidad son requeridos' });
+  if (!titulo || !detalle || !cantidad || precio === undefined) {
+    return res.status(400).json({ error: 'Título, detalle, cantidad y precio son requeridos' });
   }
 
+  const precioNum = parseFloat(precio) || 0.0;
+
   db.run(
-    'INSERT INTO products (titulo, detalle, cantidad, imagen, admin_id) VALUES (?, ?, ?, ?, ?)',
-    [titulo, detalle, parseInt(cantidad), imagen, req.user.id],
+    'INSERT INTO products (titulo, detalle, cantidad, precio, imagen, admin_id) VALUES (?, ?, ?, ?, ?, ?)',
+    [titulo, detalle, parseInt(cantidad), precioNum, imagen, req.user.id],
     function(err) {
       if (err) {
         return res.status(500).json({ error: 'Error al crear producto' });
@@ -321,6 +359,7 @@ app.post('/api/products', authenticateToken, isAdmin, upload.single('imagen'), (
           titulo,
           detalle,
           cantidad: parseInt(cantidad),
+          precio: precioNum,
           imagen
         }
       });
@@ -331,11 +370,13 @@ app.post('/api/products', authenticateToken, isAdmin, upload.single('imagen'), (
 // Actualizar producto (solo admin)
 app.put('/api/products/:id', authenticateToken, isAdmin, upload.single('imagen'), (req, res) => {
   const { id } = req.params;
-  const { titulo, detalle, cantidad } = req.body;
+  const { titulo, detalle, cantidad, precio } = req.body;
   const imagen = req.file ? req.file.filename : null;
 
-  let query = 'UPDATE products SET titulo = ?, detalle = ?, cantidad = ?';
-  let params = [titulo, detalle, parseInt(cantidad)];
+  const precioNum = parseFloat(precio) || 0.0;
+
+  let query = 'UPDATE products SET titulo = ?, detalle = ?, cantidad = ?, precio = ?';
+  let params = [titulo, detalle, parseInt(cantidad), precioNum];
 
   if (imagen) {
     query += ', imagen = ?';
@@ -383,7 +424,7 @@ app.get('/api/cart', authenticateToken, (req, res) => {
   const userId = req.user.id;
 
   db.all(
-    `SELECT c.id, c.quantity, c.product_id, p.titulo, p.detalle, p.cantidad as stock, p.imagen
+    `SELECT c.id, c.quantity, c.product_id, p.titulo, p.detalle, p.cantidad as stock, p.precio, p.imagen
      FROM cart c
      INNER JOIN products p ON c.product_id = p.id
      WHERE c.user_id = ?
