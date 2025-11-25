@@ -6,6 +6,11 @@ let cartItems = [];
 let productsCache = null;
 let cartCount = 0;
 
+// Límites para stock y precio (ajustables)
+// Nota: estos límites se muestran en el UI mediante atributos `max` en `index.html`
+const MAX_STOCK = 10000;      // máximo aceptable para cantidad/stock
+const MAX_PRICE = 99999.99;   // máximo aceptable para precio
+
 // Elementos del DOM
 const loginView = document.getElementById('login-view');
 const registerView = document.getElementById('register-view');
@@ -28,7 +33,8 @@ const cartCountElement = document.getElementById('cart-count');
 const cartItemsList = document.getElementById('cart-items-list');
 const cartEmpty = document.getElementById('cart-empty');
 const clearCartBtn = document.getElementById('clear-cart-btn');
-const loadingOverlay = document.getElementById('loading-overlay');
+// Agregado: botón para regresar a la página principal
+const backToMainBtn = document.getElementById('back-to-main-btn');
 
 // API Base URL - Se detecta automáticamente el entorno
 // En desarrollo: http://localhost:3000/api
@@ -154,6 +160,40 @@ function setupEventListeners() {
       imagePreview.src = '';
     });
 
+    // --- Cambios añadidos: listeners para limitar inputs de cantidad y precio ---
+    // Se añaden en el cliente para mejorar UX y prevenir envíos inválidos.
+    const productCantidadInput = document.getElementById('product-cantidad');
+    const productPrecioInput = document.getElementById('product-precio');
+
+    productCantidadInput?.addEventListener('input', (e) => {
+        const el = e.target;
+        let v = parseInt(el.value, 10);
+        if (isNaN(v)) return; // permitir campo vacío temporalmente
+        if (v < 0) {
+            el.value = 0;
+            return;
+        }
+        if (v > MAX_STOCK) {
+            el.value = MAX_STOCK;
+            showNotification(`Cantidad máxima ${MAX_STOCK}`, 'error');
+        }
+    });
+
+    productPrecioInput?.addEventListener('input', (e) => {
+        const el = e.target;
+        let v = parseFloat(el.value);
+        if (isNaN(v)) return; // permitir campo vacío temporalmente
+        if (v < 0) {
+            el.value = 0;
+            return;
+        }
+        if (v > MAX_PRICE) {
+            el.value = MAX_PRICE;
+            showNotification(`Precio máximo $${MAX_PRICE.toFixed(2)}`, 'error');
+        }
+    });
+    // --- Fin de cambios en listeners ---
+
     // Search functionality
     const searchInput = document.getElementById('search-input');
     const clearSearchBtn = document.getElementById('clear-search-btn');
@@ -183,6 +223,8 @@ function setupEventListeners() {
         document.getElementById('form-title').textContent = 'Agregar Producto';
         productFormContainer.style.display = 'block';
         productFormContainer.scrollIntoView({ behavior: 'smooth' });
+        // Agregado: mostrar botón de regresar cuando se abre el formulario
+        backToMainBtn.style.display = 'block';
     });
 
     cancelFormBtn?.addEventListener('click', () => {
@@ -195,6 +237,10 @@ function setupEventListeners() {
         if (imagePreviewContainer && productImagenInput) {
             imagePreviewContainer.style.display = 'none';
             productImagenInput.value = '';
+        }
+        // Agregado: ocultar botón de regresar cuando se cierra el formulario y estamos en vista admin
+        if (currentUser && currentUser.role === 'admin') {
+            backToMainBtn.style.display = 'none';
         }
     });
 
@@ -209,6 +255,13 @@ function setupEventListeners() {
         if (e.target === productModal) {
             productModal.style.display = 'none';
         }
+    });
+
+    // Regresar a inicio
+    backToMainBtn?.addEventListener('click', (e) => {
+        e.preventDefault();
+        showView('products');
+        loadProducts();
     });
 }
 
@@ -248,6 +301,27 @@ function showView(viewName) {
         case 'admin':
             adminView.classList.add('active');
             break;
+    }
+
+    // Agregado: mostrar/ocultar botón de regresar según vista
+    // - Oculto en login y register
+    // - Oculto en vista principal de productos para compradores (ya están en inicio)
+    // - Visible en carrito (comprador) y admin
+    if (currentUser) {
+        if (viewName === 'login' || viewName === 'register') {
+            backToMainBtn.style.display = 'none';
+        } else if (viewName === 'products' && currentUser.role === 'comprador') {
+            // El comprador está en su página principal (productos), no mostrar botón
+            backToMainBtn.style.display = 'none';
+        } else if (viewName === 'admin' && currentUser.role === 'admin') {
+            // El admin está en su página principal, no mostrar botón
+            backToMainBtn.style.display = 'none';
+        } else {
+            // Mostrar botón en carrito (comprador) u otras vistas secundarias
+            backToMainBtn.style.display = 'block';
+        }
+    } else {
+        backToMainBtn.style.display = 'none';
     }
 }
 
@@ -448,7 +522,7 @@ function displayProducts(products, containerId) {
         const productCard = createProductCard(product);
         fragment.appendChild(productCard);
     });
-    
+
     container.innerHTML = '';
     container.appendChild(fragment);
 }
@@ -466,8 +540,8 @@ function createProductCard(product) {
 
     card.innerHTML = `
         <div class="product-image">
-            ${imageUrl 
-                ? `<img src="${imageUrl}" alt="${product.titulo}" loading="lazy" onerror="this.parentElement.innerHTML='🛹'">` 
+            ${imageUrl
+                ? `<img src="${imageUrl}" alt="${product.titulo}" loading="lazy" onerror="this.parentElement.innerHTML='🛹'">`
                 : '🛹'}
         </div>
         <div class="product-info">
@@ -517,8 +591,8 @@ function createAdminProductCard(product) {
 
     card.innerHTML = `
         <div class="product-image">
-            ${imageUrl 
-                ? `<img src="${imageUrl}" alt="${product.titulo}" onerror="this.parentElement.innerHTML='🛹'">` 
+            ${imageUrl
+                ? `<img src="${imageUrl}" alt="${product.titulo}" onerror="this.parentElement.innerHTML='🛹'">`
                 : '🛹'}
         </div>
         <div class="product-info">
@@ -556,8 +630,9 @@ window.editProduct = async function(productId) {
                 document.getElementById('product-id').value = productId;
                 document.getElementById('product-titulo').value = product.titulo;
                 document.getElementById('product-detalle').value = product.detalle;
-                document.getElementById('product-cantidad').value = product.cantidad;
-                document.getElementById('product-precio').value = product.precio || 0;
+                // Asegurar que los valores cargados al formulario no excedan los límites del cliente
+                document.getElementById('product-cantidad').value = Math.min(product.cantidad, MAX_STOCK);
+                document.getElementById('product-precio').value = Math.min(product.precio || 0, MAX_PRICE);
                 document.getElementById('form-title').textContent = 'Editar Producto';
                 
                 // Limpiar preview de imagen al editar
@@ -610,12 +685,32 @@ window.deleteProduct = async function(productId) {
 async function handleProductSubmit(e) {
     e.preventDefault();
     
+    // Validación de límites antes de construir el FormData
+    const titulo = document.getElementById('product-titulo').value;
+    const detalle = document.getElementById('product-detalle').value;
+    const cantidadRaw = document.getElementById('product-cantidad').value;
+    const precioRaw = document.getElementById('product-precio').value;
+
+    const cantidad = parseInt(cantidadRaw, 10);
+    const precio = parseFloat(precioRaw);
+
+    if (isNaN(cantidad) || cantidad < 0 || cantidad > MAX_STOCK) {
+        showNotification(`Cantidad inválida. Debe estar entre 0 y ${MAX_STOCK}`, 'error');
+        return;
+    }
+
+    if (isNaN(precio) || precio < 0 || precio > MAX_PRICE) {
+        showNotification(`Precio inválido. Debe estar entre 0 y ${MAX_PRICE.toFixed(2)}`, 'error');
+        return;
+    }
+
     const formData = new FormData();
-    formData.append('titulo', document.getElementById('product-titulo').value);
-    formData.append('detalle', document.getElementById('product-detalle').value);
-    formData.append('cantidad', document.getElementById('product-cantidad').value);
-    formData.append('precio', document.getElementById('product-precio').value);
-    
+    formData.append('titulo', titulo);
+    formData.append('detalle', detalle);
+    formData.append('cantidad', cantidad);
+    // Normalizar precio a 2 decimales antes de enviar
+    formData.append('precio', precio.toFixed(2));
+
     const imagenInput = document.getElementById('product-imagen');
     if (imagenInput.files[0]) {
         formData.append('imagen', imagenInput.files[0]);
@@ -653,6 +748,10 @@ async function handleProductSubmit(e) {
             editingProductId = null;
             productsCache = null; // Invalidar caché
             loadAdminProducts();
+            // Agregado: ocultar botón de regresar cuando se guarda y cierra el formulario
+            if (currentUser && currentUser.role === 'admin') {
+                backToMainBtn.style.display = 'none';
+            }
         } else {
             showNotification(data.error || 'Error al guardar producto', 'error');
         }
@@ -673,7 +772,7 @@ function showProductModal(product) {
 
     modalBody.innerHTML = `
         ${imageUrl 
-            ? `<img src="${imageUrl}" alt="${product.titulo}" class="modal-product-image" loading="lazy" onerror="this.style.display='none'">` 
+            ? `<img src="${imageUrl}" alt="${product.titulo}" class="modal-product-image" loading="lazy" onerror="this.style.display='none'">`
             : ''}
         <h2 class="modal-product-title">${product.titulo}</h2>
         <p class="modal-product-detail">${product.detalle}</p>
@@ -741,12 +840,12 @@ async function loadCart() {
 
 function displayCartItems() {
     const fragment = document.createDocumentFragment();
-    
+
     cartItems.forEach(item => {
         const cartItem = createCartItemElement(item);
         fragment.appendChild(cartItem);
     });
-    
+
     cartItemsList.innerHTML = '';
     cartItemsList.appendChild(fragment);
 }
@@ -764,8 +863,8 @@ function createCartItemElement(item) {
 
     div.innerHTML = `
         <div class="cart-item-image">
-            ${imageUrl 
-                ? `<img src="${imageUrl}" alt="${item.titulo}" loading="lazy" onerror="this.parentElement.innerHTML='🛹'">` 
+            ${imageUrl
+                ? `<img src="${imageUrl}" alt="${item.titulo}" loading="lazy" onerror="this.parentElement.innerHTML='🛹'">`
                 : '🛹'}
         </div>
         <div class="cart-item-info">
@@ -930,4 +1029,3 @@ async function loadCartCount() {
         console.error('Error al cargar contador del carrito:', error);
     }
 }
-

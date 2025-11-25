@@ -13,9 +13,28 @@ const JWT_SECRET = process.env.JWT_SECRET || 'skateboard-secret-key-2024';
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' })); // Limitar tamaño de JSON
 app.use(express.static('public'));
 app.use('/uploads', express.static('uploads'));
+
+// Función para sanitizar inputs y prevenir SQL injection
+function sanitizeInput(input) {
+  if (typeof input !== 'string') return input;
+  // Eliminar caracteres potencialmente peligrosos
+  return input.trim().replace(/[<>]/g, '');
+}
+
+// Función para validar que un valor sea un número entero positivo
+function isValidPositiveInteger(value) {
+  const num = parseInt(value);
+  return Number.isInteger(num) && num > 0;
+}
+
+// Función para validar que un valor sea un número positivo (puede tener decimales)
+function isValidPositiveNumber(value) {
+  const num = parseFloat(value);
+  return !isNaN(num) && num >= 0;
+}
 
 // Configuración de multer para subir imágenes
 const storage = multer.diskStorage({
@@ -31,7 +50,7 @@ const storage = multer.diskStorage({
   }
 });
 
-const upload = multer({ 
+const upload = multer({
   storage: storage,
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
   fileFilter: (req, file, cb) => {
@@ -129,6 +148,26 @@ function initDatabase() {
     db.run(`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)`);
 
+    // Agregar columna fullname si no existe
+    db.all("PRAGMA table_info(users)", (err, columns) => {
+      if (err) {
+        console.error('Error al verificar columnas de usuarios:', err.message);
+        return;
+      }
+
+      const hasFullnameColumn = columns.some(col => col.name === 'fullname');
+
+      if (!hasFullnameColumn) {
+        db.run(`ALTER TABLE users ADD COLUMN fullname TEXT`, (alterErr) => {
+          if (alterErr) {
+            console.error('Error al agregar columna fullname:', alterErr.message);
+          } else {
+            console.log('Columna fullname agregada exitosamente');
+          }
+        });
+      }
+    });
+
     // Agregar columna precio si no existe (ALTER TABLE)
     // SQLite no soporta IF NOT EXISTS en ALTER TABLE, así que verificamos primero
     db.all("PRAGMA table_info(products)", (err, columns) => {
@@ -145,29 +184,33 @@ function initDatabase() {
             console.error('Error al agregar columna precio:', alterErr.message);
           } else {
             console.log('Columna precio agregada exitosamente');
-            // Asignar precio por defecto a productos existentes
-            db.run(`UPDATE products SET precio = 0.0 WHERE precio IS NULL`, (updateErr) => {
-              if (updateErr) {
-                console.error('Error al actualizar precios existentes:', updateErr.message);
-              } else {
-                console.log('Precios por defecto asignados a productos existentes');
-              }
-            });
+            // Asignar precio por defecto a productos existentes (solo si db está abierto)
+            if (db && db.open) {
+              db.run(`UPDATE products SET precio = 0.0 WHERE precio IS NULL`, (updateErr) => {
+                if (updateErr && updateErr.code !== 'SQLITE_MISUSE') {
+                  console.error('Error al actualizar precios existentes:', updateErr.message);
+                } else if (!updateErr) {
+                  console.log('Precios por defecto asignados a productos existentes');
+                }
+              });
+            }
           }
         });
       } else {
         // La columna ya existe, asegurémonos de que los productos sin precio tengan 0.0
-        db.run(`UPDATE products SET precio = 0.0 WHERE precio IS NULL`, (updateErr) => {
-          if (updateErr) {
-            console.error('Error al actualizar precios existentes:', updateErr.message);
-          }
-        });
+        if (db && db.open) {
+          db.run(`UPDATE products SET precio = 0.0 WHERE precio IS NULL`, (updateErr) => {
+            if (updateErr && updateErr.code !== 'SQLITE_MISUSE') {
+              console.error('Error al actualizar precios existentes:', updateErr.message);
+            }
+          });
+        }
       }
     });
 
     // Crear usuario admin por defecto
     const adminPassword = bcrypt.hashSync('admin123', 10);
-    db.run(`INSERT OR IGNORE INTO users (username, email, password, role) 
+    db.run(`INSERT OR IGNORE INTO users (username, email, password, role)
             VALUES ('admin', 'admin@skateboard.com', ?, 'admin')`, [adminPassword]);
   });
 }
@@ -200,40 +243,98 @@ function isAdmin(req, res, next) {
 
 // Rutas de autenticación
 app.post('/api/register', async (req, res) => {
-  const { username, email, password } = req.body;
+  const { fullname, username, email, password } = req.body;
 
-  if (!username || !email || !password) {
+  // Validación de campos requeridos
+  if (!fullname || !username || !email || !password) {
     return res.status(400).json({ error: 'Todos los campos son requeridos' });
   }
 
+  // Validación de nombre completo
+  if (fullname.trim().length < 3) {
+    return res.status(400).json({ error: 'El nombre completo debe tener al menos 3 caracteres' });
+  }
+
+  // Validación de nombre de usuario
+  if (username.trim().length < 3) {
+    return res.status(400).json({ error: 'El nombre de usuario debe tener al menos 3 caracteres' });
+  }
+
+  // Validación de formato de email
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ error: 'Por favor, ingresa un correo electrónico válido' });
+  }
+
+  // Validación de contraseña
+  if (password.length < 8) {
+    return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+  }
+
+  const hasUpperCase = /[A-Z]/.test(password);
+  const hasLowerCase = /[a-z]/.test(password);
+  const hasNumber = /[0-9]/.test(password);
+
+  if (!hasUpperCase || !hasLowerCase || !hasNumber) {
+    return res.status(400).json({
+      error: 'La contraseña debe contener al menos una mayúscula, una minúscula y un número'
+    });
+  }
+
   try {
+    // Verificar si el email ya existe
+    const existingEmail = await new Promise((resolve, reject) => {
+      db.get('SELECT id FROM users WHERE email = ?', [email], (err, row) => {
+        if (err) reject(err);
+        else resolve(row);
+      });
+    });
+
+    if (existingEmail) {
+      return res.status(400).json({
+        error: 'Este correo electrónico ya está registrado. Por favor, elige otro'
+      });
+    }
+
+    // Verificar si el username ya existe
+    const existingUsername = await new Promise((resolve, reject) => {
+      db.get('SELECT id FROM users WHERE username = ?', [username], (err, row) => {
+        if (err) reject(err);
+        else resolve(row);
+      });
+    });
+
+    if (existingUsername) {
+      return res.status(400).json({
+        error: 'Este nombre de usuario ya está en uso. Por favor, elige otro'
+      });
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
     
     db.run(
-      'INSERT INTO users (username, email, password, role) VALUES (?, ?, ?, ?)',
-      [username, email, hashedPassword, 'comprador'],
+      'INSERT INTO users (fullname, username, email, password, role) VALUES (?, ?, ?, ?, ?)',
+      [fullname.trim(), username.trim(), email.trim(), hashedPassword, 'comprador'],
       function(err) {
         if (err) {
-          if (err.message.includes('UNIQUE constraint')) {
-            return res.status(400).json({ error: 'El usuario o email ya existe' });
-          }
+          console.error('Error al crear usuario:', err);
           return res.status(500).json({ error: 'Error al crear usuario' });
         }
 
-        const token = jwt.sign(
-          { id: this.lastID, username, email, role: 'comprador' },
-          JWT_SECRET,
-          { expiresIn: '24h' }
-        );
-
-        res.json({ 
+        res.json({
           message: 'Usuario creado exitosamente',
-          token,
-          user: { id: this.lastID, username, email, role: 'comprador' }
+          user: {
+            id: this.lastID,
+            fullname: fullname.trim(),
+            username: username.trim(),
+            email: email.trim(),
+            role: 'comprador'
+          }
         });
       }
     );
   } catch (error) {
+    console.error('Error en registro:', error);
     res.status(500).json({ error: 'Error al procesar la solicitud' });
   }
 });
@@ -334,15 +435,30 @@ app.post('/api/products', authenticateToken, isAdmin, upload.single('imagen'), (
   const { titulo, detalle, cantidad, precio } = req.body;
   const imagen = req.file ? req.file.filename : null;
 
-  if (!titulo || !detalle || !cantidad || precio === undefined) {
+  // Sanitizar inputs
+  const sanitizedTitulo = sanitizeInput(titulo);
+  const sanitizedDetalle = sanitizeInput(detalle);
+  const sanitizedCantidad = sanitizeInput(cantidad);
+  const sanitizedPrecio = sanitizeInput(precio);
+
+  // Validar inputs
+  if (!sanitizedTitulo || !sanitizedDetalle || !sanitizedCantidad || sanitizedPrecio === undefined) {
     return res.status(400).json({ error: 'Título, detalle, cantidad y precio son requeridos' });
   }
 
-  const precioNum = parseFloat(precio) || 0.0;
+  if (!isValidPositiveInteger(sanitizedCantidad)) {
+    return res.status(400).json({ error: 'La cantidad debe ser un número entero positivo' });
+  }
+
+  const precioNum = parseFloat(sanitizedPrecio);
+
+  if (!isValidPositiveNumber(precioNum)) {
+    return res.status(400).json({ error: 'El precio debe ser un número positivo' });
+  }
 
   db.run(
     'INSERT INTO products (titulo, detalle, cantidad, precio, imagen, admin_id) VALUES (?, ?, ?, ?, ?, ?)',
-    [titulo, detalle, parseInt(cantidad), precioNum, imagen, req.user.id],
+    [sanitizedTitulo, sanitizedDetalle, parseInt(sanitizedCantidad), precioNum, imagen, req.user.id],
     function(err) {
       if (err) {
         return res.status(500).json({ error: 'Error al crear producto' });
@@ -356,9 +472,9 @@ app.post('/api/products', authenticateToken, isAdmin, upload.single('imagen'), (
         message: 'Producto creado exitosamente',
         product: {
           id: this.lastID,
-          titulo,
-          detalle,
-          cantidad: parseInt(cantidad),
+          titulo: sanitizedTitulo,
+          detalle: sanitizedDetalle,
+          cantidad: parseInt(sanitizedCantidad),
           precio: precioNum,
           imagen
         }
@@ -373,10 +489,29 @@ app.put('/api/products/:id', authenticateToken, isAdmin, upload.single('imagen')
   const { titulo, detalle, cantidad, precio } = req.body;
   const imagen = req.file ? req.file.filename : null;
 
-  const precioNum = parseFloat(precio) || 0.0;
+  // Sanitizar inputs
+  const sanitizedTitulo = sanitizeInput(titulo);
+  const sanitizedDetalle = sanitizeInput(detalle);
+  const sanitizedCantidad = sanitizeInput(cantidad);
+  const sanitizedPrecio = sanitizeInput(precio);
+
+  // Validar inputs
+  if (!sanitizedTitulo || !sanitizedDetalle || !sanitizedCantidad || sanitizedPrecio === undefined) {
+    return res.status(400).json({ error: 'Título, detalle, cantidad y precio son requeridos' });
+  }
+
+  if (!isValidPositiveInteger(sanitizedCantidad)) {
+    return res.status(400).json({ error: 'La cantidad debe ser un número entero positivo' });
+  }
+
+  const precioNum = parseFloat(sanitizedPrecio);
+
+  if (!isValidPositiveNumber(precioNum)) {
+    return res.status(400).json({ error: 'El precio debe ser un número positivo' });
+  }
 
   let query = 'UPDATE products SET titulo = ?, detalle = ?, cantidad = ?, precio = ?';
-  let params = [titulo, detalle, parseInt(cantidad), precioNum];
+  let params = [sanitizedTitulo, sanitizedDetalle, parseInt(sanitizedCantidad), precioNum];
 
   if (imagen) {
     query += ', imagen = ?';
@@ -444,37 +579,42 @@ app.post('/api/cart', authenticateToken, (req, res) => {
   const userId = req.user.id;
   const { product_id, quantity } = req.body;
 
-  if (!product_id || !quantity || quantity < 1) {
+  // Sanitizar inputs
+  const sanitizedProductId = sanitizeInput(product_id);
+  const sanitizedQuantity = sanitizeInput(quantity);
+
+  // Validar inputs
+  if (!sanitizedProductId || !sanitizedQuantity || sanitizedQuantity < 1) {
     return res.status(400).json({ error: 'Producto y cantidad válida son requeridos' });
   }
 
   // Verificar que el producto existe y tiene stock
-  db.get('SELECT cantidad FROM products WHERE id = ?', [product_id], (err, product) => {
+  db.get('SELECT cantidad FROM products WHERE id = ?', [sanitizedProductId], (err, product) => {
     if (err) {
       return res.status(500).json({ error: 'Error al verificar producto' });
     }
     if (!product) {
       return res.status(404).json({ error: 'Producto no encontrado' });
     }
-    if (product.cantidad < quantity) {
+    if (product.cantidad < sanitizedQuantity) {
       return res.status(400).json({ error: 'Stock insuficiente' });
     }
 
     // Verificar si el producto ya está en el carrito
-    db.get('SELECT id, quantity FROM cart WHERE user_id = ? AND product_id = ?', 
-      [userId, product_id], (err, existingItem) => {
+    db.get('SELECT id, quantity FROM cart WHERE user_id = ? AND product_id = ?',
+      [userId, sanitizedProductId], (err, existingItem) => {
         if (err) {
           return res.status(500).json({ error: 'Error al verificar carrito' });
         }
 
         if (existingItem) {
           // Actualizar cantidad
-          const newQuantity = existingItem.quantity + quantity;
+          const newQuantity = existingItem.quantity + sanitizedQuantity;
           if (newQuantity > product.cantidad) {
             return res.status(400).json({ error: 'Stock insuficiente para la cantidad solicitada' });
           }
           
-          db.run('UPDATE cart SET quantity = ? WHERE id = ?', 
+          db.run('UPDATE cart SET quantity = ? WHERE id = ?',
             [newQuantity, existingItem.id], function(err) {
               if (err) {
                 return res.status(500).json({ error: 'Error al actualizar carrito' });
@@ -484,7 +624,7 @@ app.post('/api/cart', authenticateToken, (req, res) => {
         } else {
           // Agregar nuevo item
           db.run('INSERT INTO cart (user_id, product_id, quantity) VALUES (?, ?, ?)',
-            [userId, product_id, quantity], function(err) {
+            [userId, sanitizedProductId, sanitizedQuantity], function(err) {
               if (err) {
                 return res.status(500).json({ error: 'Error al agregar al carrito' });
               }
@@ -501,7 +641,11 @@ app.put('/api/cart/:id', authenticateToken, (req, res) => {
   const cartId = req.params.id;
   const { quantity } = req.body;
 
-  if (!quantity || quantity < 1) {
+  // Sanitizar inputs
+  const sanitizedQuantity = sanitizeInput(quantity);
+
+  // Validar inputs
+  if (!sanitizedQuantity || sanitizedQuantity < 1) {
     return res.status(400).json({ error: 'Cantidad válida es requerida' });
   }
 
@@ -519,12 +663,12 @@ app.put('/api/cart/:id', authenticateToken, (req, res) => {
       if (!item) {
         return res.status(404).json({ error: 'Item no encontrado' });
       }
-      if (quantity > item.stock) {
+      if (sanitizedQuantity > item.stock) {
         return res.status(400).json({ error: 'Stock insuficiente' });
       }
 
-      db.run('UPDATE cart SET quantity = ? WHERE id = ?', 
-        [quantity, cartId], function(err) {
+      db.run('UPDATE cart SET quantity = ? WHERE id = ?',
+        [sanitizedQuantity, cartId], function(err) {
           if (err) {
             return res.status(500).json({ error: 'Error al actualizar carrito' });
           }
@@ -539,15 +683,15 @@ app.delete('/api/cart/:id', authenticateToken, (req, res) => {
   const userId = req.user.id;
   const cartId = req.params.id;
 
-  db.run('DELETE FROM cart WHERE id = ? AND user_id = ?', 
+  db.run('DELETE FROM cart WHERE id = ? AND user_id = ?',
     [cartId, userId], function(err) {
       if (err) {
-        return res.status(500).json({ error: 'Error al eliminar del carrito' });
+        return res.status(500).json({ success: false, error: 'Error al eliminar del carrito' });
       }
       if (this.changes === 0) {
-        return res.status(404).json({ error: 'Item no encontrado' });
+        return res.status(404).json({ success: false, error: 'Item no encontrado' });
       }
-      res.json({ message: 'Producto eliminado del carrito' });
+      res.json({ success: true, message: 'Producto eliminado del carrito' });
     });
 });
 
@@ -557,9 +701,9 @@ app.delete('/api/cart', authenticateToken, (req, res) => {
 
   db.run('DELETE FROM cart WHERE user_id = ?', [userId], function(err) {
     if (err) {
-      return res.status(500).json({ error: 'Error al vaciar carrito' });
+      return res.status(500).json({ success: false, error: 'Error al vaciar carrito' });
     }
-    res.json({ message: 'Carrito vaciado' });
+    res.json({ success: true, message: 'Carrito vaciado' });
   });
 });
 
@@ -615,4 +759,3 @@ app.listen(PORT, () => {
   console.log(`Servidor corriendo en http://localhost:${PORT}`);
   console.log('Base de datos: skateboard.db (persistente)');
 });
-

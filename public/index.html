@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkateShop - Tienda de Skateboard</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- ==================== NAVBAR ==================== -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="logo">
+                <span class="logo-icon">🛹</span>
+                <span class="logo-text">SkateShop</span>
+            </div>
+            <div class="nav-links">
+                <span id="user-info" class="user-info"></span>
+
+                <!-- Carrito (solo compradores) -->
+                <div id="cart-icon-container" class="cart-icon-container" style="display: none;">
+                    <button id="cart-icon-btn" class="cart-icon-btn">
+                        🛒 <span id="cart-count" class="cart-count">0</span>
+                    </button>
+                </div>
+
+                <!-- Botón volver al inicio -->
+                <button id="back-to-main-btn" class="btn-secondary" style="display: none;">
+                    🏠 Volver al Inicio
+                </button>
+
+                <!-- Cerrar sesión -->
+                <button id="logout-btn" class="btn-secondary" style="display: none;">
+                    Cerrar Sesión
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- ==================== CONTENEDOR PRINCIPAL ==================== -->
+    <div id="app-container">
+
+        <!-- ==================== VISTA LOGIN ==================== -->
+        <div id="login-view" class="view active">
+            <div class="auth-container">
+                <div class="auth-card">
+                    <div class="auth-header">
+                        <span class="auth-icon">🛹</span>
+                        <h1>Bienvenido a SkateShop</h1>
+                        <p>Inicia sesión para continuar</p>
+                    </div>
+
+                    <form id="login-form">
+                        <div class="form-group">
+                            <label for="login-username">Usuario o Email</label>
+                            <input type="text" id="login-username" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="login-password">Contraseña</label>
+                            <input type="password" id="login-password" required>
+                        </div>
+
+                        <button type="submit" class="btn-primary">Iniciar Sesión</button>
+
+                        <p class="auth-switch">
+                            ¿No tienes cuenta?
+                            <a href="#" id="switch-to-register">Regístrate aquí</a>
+                        </p>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== VISTA REGISTRO ==================== -->
+        <div id="register-view" class="view">
+            <div class="auth-container">
+                <div class="auth-card">
+                    <div class="auth-header">
+                        <span class="auth-icon">🛹</span>
+                        <h1>Crear Cuenta</h1>
+                        <p>Únete a la comunidad de SkateShop</p>
+                    </div>
+
+                    <form id="register-form">
+                        <div class="form-group">
+                            <label for="register-fullname">Nombre Completo <span style="color: #ff4444;">*</span></label>
+                            <input type="text" id="register-fullname" required placeholder="Ej: Juan Pérez">
+                            <small class="form-help">Tu nombre completo</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="register-username">Nombre de Usuario <span style="color: #ff4444;">*</span></label>
+                            <input type="text" id="register-username" required placeholder="Ej: juanperez" minlength="3">
+                            <small class="form-help">Mínimo 3 caracteres, único en el sistema</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="register-email">Correo Electrónico <span style="color: #ff4444;">*</span></label>
+                            <input type="email" id="register-email" required placeholder="Ej: juan@ejemplo.com">
+                            <small class="form-help">Debe ser único en el sistema</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="register-password">Contraseña <span style="color: #ff4444;">*</span></label>
+                            <input type="password" id="register-password" required placeholder="Mínimo 8 caracteres" minlength="8">
+                            <small class="form-help">Mínimo 8 caracteres, debe incluir mayúsculas, minúsculas y números</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="register-password-confirm">Confirmar Contraseña <span style="color: #ff4444;">*</span></label>
+                            <input type="password" id="register-password-confirm" required placeholder="Repite tu contraseña" minlength="8">
+                            <small class="form-help">Debe coincidir con la contraseña anterior</small>
+                        </div>
+
+                        <div class="form-info">
+                            <small>ℹ️ Se te asignará automáticamente el rol de <strong>Comprador</strong></small>
+                        </div>
+
+                        <button type="submit" class="btn-primary">Crear Cuenta</button>
+
+                        <p class="auth-switch">
+                            ¿Ya tienes cuenta?
+                            <a href="#" id="switch-to-login">Inicia sesión aquí</a>
+                        </p>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== VISTA PRODUCTOS (COMPRADOR) ==================== -->
+        <div id="products-view" class="view">
+            <div class="container">
+                <div class="products-header">
+                    <h1 class="page-title">Productos Disponibles</h1>
+
+                    <!-- Buscador -->
+                    <div class="search-container">
+                        <input
+                            type="text"
+                            id="search-input"
+                            class="search-input"
+                            placeholder="🔍 Buscar productos por nombre..."
+                            aria-label="Buscar productos">
+                        <button id="clear-search-btn" class="clear-search-btn" style="display: none;">
+                            ✕
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Grid de productos -->
+                <div id="products-grid" class="products-grid"></div>
+
+                <!-- Sin resultados -->
+                <div id="no-results" class="no-results" style="display: none;">
+                    <p>No se encontraron productos que coincidan con tu búsqueda</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== VISTA CARRITO ==================== -->
+        <div id="cart-view" class="view">
+            <div class="container">
+                <div class="cart-header">
+                    <h1 class="page-title">Mi Carrito</h1>
+                    <button id="clear-cart-btn" class="btn-secondary" style="display: none;">
+                        Vaciar Carrito
+                    </button>
+                </div>
+
+                <div id="cart-items-container" class="cart-items-container">
+                    <!-- Loading -->
+                    <div class="loading-spinner" id="cart-loading" style="display: none;"></div>
+
+                    <!-- Lista de items -->
+                    <div id="cart-items-list" class="cart-items-list"></div>
+
+                    <!-- Carrito vacío -->
+                    <div id="cart-empty" class="cart-empty" style="display: none;">
+                        <p>Tu carrito está vacío</p>
+                        <button class="btn-primary" onclick="showView('products')">
+                            Ver Productos
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== VISTA DASHBOARD ADMIN ==================== -->
+        <div id="admin-dashboard-view" class="view">
+            <div class="container">
+                <div class="dashboard-header">
+                    <h1 class="page-title">Panel de Administración</h1>
+                    <p class="dashboard-subtitle">Bienvenido al sistema de gestión</p>
+                </div>
+
+                <div class="dashboard-grid">
+                    <!-- Card Gestionar Productos -->
+                    <div class="dashboard-card" id="manage-products-card">
+                        <div class="card-icon">📦</div>
+                        <h3 class="card-title">Gestionar Productos</h3>
+                        <p class="card-description">Agregar, editar y eliminar productos del inventario</p>
+                        <button class="card-button">Ir a Productos</button>
+                    </div>
+
+                    <!-- Card Estadísticas (para futuras expansiones) -->
+                    <div class="dashboard-card disabled">
+                        <div class="card-icon">📊</div>
+                        <h3 class="card-title">Estadísticas</h3>
+                        <p class="card-description">Visualiza métricas y reportes de ventas</p>
+                        <span class="card-badge">Próximamente</span>
+                    </div>
+
+                    <!-- Card Usuarios (para futuras expansiones) -->
+                    <div class="dashboard-card disabled">
+                        <div class="card-icon">👥</div>
+                        <h3 class="card-title">Usuarios</h3>
+                        <p class="card-description">Administrar cuentas de usuarios</p>
+                        <span class="card-badge">Próximamente</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== VISTA ADMIN (GESTIÓN DE PRODUCTOS) ==================== -->
+        <div id="admin-view" class="view">
+            <div class="container">
+                <div class="admin-header">
+                    <h1 class="page-title">Panel de Administración</h1>
+                    <button id="add-product-btn" class="btn-primary">
+                        + Agregar Producto
+                    </button>
+                </div>
+                
+                <!-- ========== FORMULARIO DE PRODUCTO ========== -->
+                <div id="product-form-container" class="product-form-container" style="display: none;">
+                    <div class="product-form-card">
+                        <h2 id="form-title">Agregar Producto</h2>
+
+                        <form id="product-form">
+                            <input type="hidden" id="product-id">
+
+                            <!-- Título -->
+                            <div class="form-group">
+                                <label for="product-titulo">
+                                    Título <span style="color: #ff4444;">*</span>
+                                </label>
+                                <input type="text" id="product-titulo" required>
+                            </div>
+
+                            <!-- Detalle -->
+                            <div class="form-group">
+                                <label for="product-detalle">
+                                    Detalle <span style="color: #ff4444;">*</span>
+                                </label>
+                                <textarea id="product-detalle" rows="4" required></textarea>
+                            </div>
+
+                            <!-- Cantidad -->
+                            <div class="form-group">
+                                <label for="product-cantidad">
+                                    Cantidad <span style="color: #ff4444;">*</span>
+                                </label>
+                                <input
+                                    type="number"
+                                    id="product-cantidad"
+                                    min="0"
+                                    max="10000"
+                                    required
+                                    title="Máximo 10000">
+                            </div>
+
+                            <!-- Precio -->
+                            <div class="form-group">
+                                <label for="product-precio">
+                                    Precio ($) <span style="color: #ff4444;">*</span>
+                                </label>
+                                <input
+                                    type="number"
+                                    id="product-precio"
+                                    min="0"
+                                    max="99999.99"
+                                    step="0.01"
+                                    required
+                                    title="Máximo 99999.99">
+                            </div>
+
+                            <!-- Imagen -->
+                            <div class="form-group">
+                                <label for="product-imagen">
+                                    Imagen <span style="color: #888;">(opcional)</span>
+                                </label>
+                                <div class="image-upload-container">
+                                    <input
+                                        type="file"
+                                        id="product-imagen"
+                                        accept="image/*"
+                                        class="image-input">
+                                    <label for="product-imagen" class="image-upload-label">
+                                        <span class="upload-icon">📷</span>
+                                        <span class="upload-text">Seleccionar Imagen</span>
+                                    </label>
+
+                                    <!-- Preview de imagen -->
+                                    <div id="image-preview-container" class="image-preview-container" style="display: none;">
+                                        <img id="image-preview" class="image-preview" alt="Vista previa" src="">
+                                        <button type="button" id="remove-image-btn" class="remove-image-btn">
+                                            ✕
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Botones de acción -->
+                            <div class="form-actions">
+                                <button type="submit" class="btn-primary">Guardar</button>
+                                <button type="button" id="cancel-form-btn" class="btn-secondary">
+                                    Cancelar
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Grid de productos admin -->
+                <div id="admin-products-grid" class="products-grid"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL DE PRODUCTO ==================== -->
+    <div id="product-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <div id="modal-body"></div>
+        </div>
+    </div>
+
+    <!-- ==================== NOTIFICACIONES ==================== -->
+    <div id="notification" class="notification"></div>
+
+    <!-- ==================== MODAL DE CONFIRMACIÓN ==================== -->
+    <div id="confirm-modal" class="confirm-modal">
+        <div class="confirm-content">
+            <div id="confirm-icon" class="confirm-icon">⚠️</div>
+            <h2 id="confirm-title" class="confirm-title">¿Estás seguro?</h2>
+            <p id="confirm-message" class="confirm-message">Esta acción no se puede deshacer.</p>
+            <div class="confirm-actions">
+                <button id="confirm-btn-yes" class="confirm-btn confirm-btn-yes">Sí, eliminar</button>
+                <button id="confirm-btn-no" class="confirm-btn confirm-btn-no">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== LOADING OVERLAY ==================== -->
+    <div id="loading-overlay" class="loading-overlay" style="display: none;">
+        <div class="loading-spinner"></div>
+    </div>
+
+    <!-- ==================== SCRIPTS MODULARES ==================== -->
+    <!-- Orden de carga importante: -->
+    <script src="js/config.js"></script>      <!-- 1. Configuración y constantes -->
+    <script src="js/state.js"></script>       <!-- 2. Estado global y elementos DOM -->
+    <script src="js/utils.js"></script>       <!-- 3. Utilidades -->
+    <script src="js/auth.js"></script>        <!-- 4. Autenticación -->
+    <script src="js/navigation.js"></script>  <!-- 5. Navegación -->
+    <script src="js/products.js"></script>    <!-- 6. Productos -->
+    <script src="js/cart.js"></script>        <!-- 7. Carrito -->
+    <script src="js/events.js"></script>      <!-- 8. Event listeners -->
+    <script src="js/init.js"></script>        <!-- 9. Inicialización -->
+</body>
+</html>
